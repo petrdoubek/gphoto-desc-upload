@@ -9,10 +9,11 @@ import selenium
 import time
 
 INTERACTIVE = False  # ask before processing each album
-ALBUM_NAME_CONTAINS = '2013'  # process only albums whose name contains given string, set to None for all
+ALBUM_NAME_CONTAINS = None  # process only albums whose name contains given string, set to None for all
 
 CREDENTIALS_FILENAME = 'credentials.json'
 DESCRIPTIONS_FILENAME = 'captions.txt'
+DESCRIPTIONS_DELIMITER = '\t'
 
 CLASS_ALBUM_NAME = 'mfQCMe'
 CLASS_ALBUM_LINK = "//a[@class='MTmRkb']"
@@ -24,8 +25,6 @@ def wait4xpath(browser, xpath, sec):
 
 def google_signin(browser, credentials):
     browser.get('https://photos.google.com/login')
-    time.sleep(1)
-    assert 'Google Accounts' in browser.title
     email_field = wait4xpath(browser, "//input[@name='identifier']", 10)
     email_field.send_keys(credentials['username'])
     next_button = browser.find_element_by_id('identifierNext')
@@ -60,16 +59,6 @@ def photo_close_info(page):
         print('ERROR unable to close info ... probably not needed, continuing')
 
 
-def all_albums_page(browser):
-    browser.get('https://photos.google.com/albums')
-    time.sleep(1)
-    assert 'Albums - Google Photos' in browser.title
-
-
-def a_album_name(a):
-    return a.find_element_by_class_name(CLASS_ALBUM_NAME).text
-
-
 def photo_get_filename(browser):
     for attempt in range(2):
         time.sleep(2)  # would be faster to wait for the xpath but I do not know how to select only visible elements by xpath
@@ -93,7 +82,7 @@ def photo_get_description_elem(browser):
     return None
 
 
-def photo_process(browser, last_file, descriptions):
+def process_photo(browser, last_file, descriptions):
     while True:
         filename = photo_get_filename(browser)
         if filename is None:
@@ -124,16 +113,27 @@ def photo_process(browser, last_file, descriptions):
     return filename
 
 
+def all_albums_page(browser):
+    browser.get('https://photos.google.com/albums')
+    time.sleep(1)
+    assert 'Albums - Google Photos' in browser.title
+
+
+def album_name(a):
+    return a.find_element_by_class_name(CLASS_ALBUM_NAME).text
+
+
 def process_album(browser, a, descriptions):
-    # open album in new tab and find first photo
+    # open album in new tab
     browser.execute_script("window.open('%s', 'album');" % a.get_attribute('href'))
     browser.switch_to.window('album')
+
+    # find first photo
     try:
         photo_link = wait4xpath(browser, "//a[contains(@aria-label, 'Photo - ')]", 10)
     except selenium.common.exceptions.NoSuchElementException:
         print('WARNING empty album?')
-        browser_close_album(browser)
-        return
+        photo_link = None
 
     # go the first photo and use "Next" button to iterate through whole album
     last_file = None
@@ -143,52 +143,56 @@ def process_album(browser, a, descriptions):
         except selenium.common.exceptions.ElementNotVisibleException:
             break  # indicates the last file
 
-        last_file = photo_process(browser, last_file, descriptions)
+        last_file = process_photo(browser, last_file, descriptions)
 
         photo_link = browser.find_element_by_xpath("//div[@aria-label='View next photo']")
 
-    time.sleep(5)
-    browser_close_album(browser)
-
-
-def browser_close_album(browser):
+    time.sleep(3)
     browser.close()
     browser.switch_to.window(browser.window_handles[0])
 
 
 def process_account(credentials_filename, descriptions_filename):
+    credentials = load_credentials(credentials_filename)
+    descriptions = load_descriptions(descriptions_filename)
+
+    browser = webdriver.Chrome()
+    browser.implicitly_wait(1)
+    google_signin(browser, credentials)
+
+    all_albums_page(browser)
+    albums = browser.find_elements_by_xpath(CLASS_ALBUM_LINK)
+
+    for a in albums:
+        name = album_name(a)
+        if ALBUM_NAME_CONTAINS is None or ALBUM_NAME_CONTAINS in name:
+            print('Album: %s' % name)
+            if not INTERACTIVE or input('Process? [y/n]') == 'y':
+                process_album(browser, a, descriptions)
+
+    time.sleep(5)
+    browser.quit()
+
+
+def load_credentials(credentials_filename):
     with open(credentials_filename, 'r') as file:
         credentials = json.load(file)
         assert 'username' in credentials and 'password' in credentials
     print('Credentials loaded from %s.' % credentials_filename)
+    return credentials
 
+
+def load_descriptions(descriptions_filename):
     descriptions = {}
     with open(descriptions_filename, 'r') as file:
-        reader = csv.reader(file, delimiter='\t')
+        reader = csv.reader(file, delimiter=DESCRIPTIONS_DELIMITER)
         for row in reader:
             if len(row) >= 2:
                 descriptions[row[0]] = row[1]
                 if len(row) >= 3 and len(row[2]) > 1 and row[2][0] != '<':
                     descriptions[row[0]] += '; ' + row[2]
     print('Descriptions loaded from %s, %d records.' % (descriptions_filename, len(descriptions)))
-
-    all_albums_driver = webdriver.Chrome()
-    all_albums_driver.implicitly_wait(1)
-    google_signin(all_albums_driver, credentials)
-
-    # get full list of albums and iterate
-    all_albums_page(all_albums_driver)
-    albums = all_albums_driver.find_elements_by_xpath(CLASS_ALBUM_LINK)
-
-    for a in albums:
-        name = a_album_name(a)
-        if ALBUM_NAME_CONTAINS is None or ALBUM_NAME_CONTAINS in name:
-            print('Album: %s' % name)
-            if not INTERACTIVE or input('Process? [y/n]') == 'y':
-                process_album(all_albums_driver, a, descriptions)
-
-    time.sleep(5)
-    all_albums_driver.quit()
+    return descriptions
 
 
 """MAIN"""
