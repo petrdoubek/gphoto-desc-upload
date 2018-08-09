@@ -1,26 +1,27 @@
-from selenium import webdriver
+import selenium
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support import expected_conditions
 
 import csv
 import json
-import selenium
 import time
 
-INTERACTIVE = False  # ask before processing each album
+ONLY_DOWNLOAD = False  # opposite mode, download the captions instead of uploading
+ASK_ALBUMS = False  # ask before processing each album
 ALBUM_NAME_CONTAINS = None  # process only albums whose name contains given string, set to None for all
 
 CREDENTIALS_FILENAME = 'credentials.json'
 DESCRIPTIONS_FILENAME = 'captions.txt'
 DESCRIPTIONS_DELIMITER = '\t'
+DOWNLOAD_FILENAME = 'download.txt'
 
 CLASS_ALBUM_NAME = 'mfQCMe'
 CLASS_ALBUM_LINK = "//a[@class='MTmRkb']"
 
 
 def wait4xpath(browser, xpath, sec):
-    return WebDriverWait(browser, sec).until(EC.presence_of_element_located((By.XPATH, xpath)))
+    return WebDriverWait(browser, sec).until(expected_conditions.presence_of_element_located((By.XPATH, xpath)))
 
 
 def google_signin(browser, credentials):
@@ -30,7 +31,7 @@ def google_signin(browser, credentials):
     next_button = browser.find_element_by_id('identifierNext')
     next_button.click()
     time.sleep(1)
-    password_field = WebDriverWait(browser, 10).until(EC.presence_of_element_located((By.NAME, 'password')))
+    password_field = WebDriverWait(browser, 10).until(expected_conditions.presence_of_element_located((By.NAME, 'password')))
     password_field.send_keys(credentials['password'])
     signin_button = browser.find_element_by_id('passwordNext')
     signin_button.click()
@@ -49,14 +50,6 @@ def photo_open_info(page):
         info_button.click()
     except:
         print('ERROR unable to open info ... hopefully it is open, continuing')
-
-
-def photo_close_info(page):
-    try:
-        page.find_element_by_xpath("//div[@aria-label='Close info']").click()
-        time.sleep(1)
-    except:
-        print('ERROR unable to close info ... probably not needed, continuing')
 
 
 def photo_get_filename(browser):
@@ -82,7 +75,7 @@ def photo_get_description_elem(browser):
     return None
 
 
-def process_photo(browser, last_file, descriptions):
+def process_photo(browser, last_file, descriptions, download_file):
     while True:
         filename = photo_get_filename(browser)
         if filename is None:
@@ -95,6 +88,11 @@ def process_photo(browser, last_file, descriptions):
             break
 
     description = photo_get_description_elem(browser)
+
+    if ONLY_DOWNLOAD:
+        download_file.write('%s%s%s\n' %
+                  (filename, DESCRIPTIONS_DELIMITER, description.text if description is not None else ''))
+        return filename
 
     if description is None:
         print('  %s: description not editable, most likely not your photo' % filename)
@@ -113,7 +111,7 @@ def process_photo(browser, last_file, descriptions):
     return filename
 
 
-def all_albums_page(browser):
+def albums_page(browser):
     browser.get('https://photos.google.com/albums')
     time.sleep(1)
     assert 'Albums - Google Photos' in browser.title
@@ -123,7 +121,7 @@ def album_name(a):
     return a.find_element_by_class_name(CLASS_ALBUM_NAME).text
 
 
-def process_album(browser, a, descriptions):
+def process_album(browser, a, descriptions, download_file):
     # open album in new tab
     browser.execute_script("window.open('%s', 'album');" % a.get_attribute('href'))
     browser.switch_to.window('album')
@@ -143,11 +141,11 @@ def process_album(browser, a, descriptions):
         except selenium.common.exceptions.ElementNotVisibleException:
             break  # indicates the last file
 
-        last_file = process_photo(browser, last_file, descriptions)
+        last_file = process_photo(browser, last_file, descriptions, download_file)
 
         photo_link = browser.find_element_by_xpath("//div[@aria-label='View next photo']")
 
-    time.sleep(3)
+    time.sleep(1)
     browser.close()
     browser.switch_to.window(browser.window_handles[0])
 
@@ -155,23 +153,34 @@ def process_album(browser, a, descriptions):
 def process_account(credentials_filename, descriptions_filename):
     credentials = load_credentials(credentials_filename)
     descriptions = load_descriptions(descriptions_filename)
+    download_file = None
+    if ONLY_DOWNLOAD:
+        download_file = open(DOWNLOAD_FILENAME, "w")
+        print("Download mode. Opened %s to write descriptions." % DOWNLOAD_FILENAME)
 
-    browser = webdriver.Chrome()
+    browser = selenium.webdriver.Chrome()
     browser.implicitly_wait(1)
     google_signin(browser, credentials)
+    print("Sign-in completed.")
 
-    all_albums_page(browser)
+    albums_page(browser)
     albums = browser.find_elements_by_xpath(CLASS_ALBUM_LINK)
+    print("Album links loaded.")
 
     for a in albums:
         name = album_name(a)
         if ALBUM_NAME_CONTAINS is None or ALBUM_NAME_CONTAINS in name:
             print('Album: %s' % name)
-            if not INTERACTIVE or input('Process? [y/n]') == 'y':
-                process_album(browser, a, descriptions)
+            if not ASK_ALBUMS or input('Process? [y/n]') == 'y':
+                process_album(browser, a, descriptions, download_file)
+        else:
+            print('Skipped: %s' % name)
 
-    time.sleep(5)
+    time.sleep(3)
     browser.quit()
+
+    if download_file:
+        download_file.close()
 
 
 def load_credentials(credentials_filename):
@@ -183,6 +192,8 @@ def load_credentials(credentials_filename):
 
 
 def load_descriptions(descriptions_filename):
+    if ONLY_DOWNLOAD:
+        return {}
     descriptions = {}
     with open(descriptions_filename, 'r') as file:
         reader = csv.reader(file, delimiter=DESCRIPTIONS_DELIMITER)
