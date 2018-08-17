@@ -11,7 +11,9 @@ file1.jpg   description of first file
 file2.jpg   description of second file
 ```
 
-The script simulates user actions (browsing the photos and adding descriptions) using Selenium Webdriver. It is dependent on certain elements in Google webpage, their names, classes etc. Thus it is fragile, changes made by Google can break it.
+The script simulates user actions (browsing the photos and adding descriptions) using Selenium Webdriver. It is dependent on certain elements in Google webpage, their names, classes etc. Changes made by Google can break it.
+
+Stable internet connection is required, the script is not designed to recover from lost connection.
 
 ## Installation
 
@@ -48,6 +50,17 @@ The script opens a new browser, logs in to your Google account and browses throu
 
 You can configure some things by changing the constants, see the script. I have not bothered with command line options as I am not going to use the script after the upload is done.
 
-## Why not use API?
+## Disclaimer
+
+Use the script at your risk. Observe first if it does what you would expect before letting it run unsupervised.
+
+## Implementation Notes
+
+### Why not use API?
 
 The API from Google [does not support update of metadata](https://developers.google.com/picasa-web/docs/3.0/releasenotes). Looking back I could have uploaded the photos together with metadata using the API (that is possible).
+
+### Why are there so many sleeps and retrys in the code?
+
+I added them when I experienced a problem with a particular action. Probably some of them are not needed or could be replaced by a cleaner solution, feel free to improve the script.
+
