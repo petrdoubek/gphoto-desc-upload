@@ -14,6 +14,7 @@ ONLY_DOWNLOAD = False  # opposite mode, download the captions instead of uploadi
 ASK_ALBUMS = False  # ask before processing each album
 REMOVE_HASHTAGGED = False  # if photo filename is preceded by hash in the descriptions file, remove it from the album
 ALBUM_NAME_CONTAINS = None  # process only albums whose name contains given string, set to None for all
+SKIP_ALBUMS_UNTIL = None  # skip all albums until the one that contains this string
 
 CREDENTIALS_FILENAME = 'credentials.json'
 DESCRIPTIONS_FILENAME = 'captions.txt'
@@ -39,12 +40,12 @@ def google_signin(browser, credentials):
     browser.get('https://photos.google.com/login')
     email_field = wait4xpath(browser, "//input[@type='email' and @name='identifier']")
     email_field.send_keys(credentials['username'])
-    next_button = wait4xpath(browser, "//div[@role='button' and content/span='Next']")
+    next_button = wait4xpath(browser, "//div[@role='button' and @id='identifierNext']")
     next_button.click()
     time.sleep(1)
-    password_field = wait4xpath(browser, "//input[@type='password']")
+    password_field = wait4xpath(browser, "//input[@type='password' and @name='password']")
     password_field.send_keys(credentials['password'])
-    signin_button = wait4xpath(browser, "//input[contains(@value,'Sign in')] | //div[@role='button' and content/span='Next']")
+    signin_button = wait4xpath(browser, "//div[@role='button' and @id='passwordNext']")
     signin_button.click()
     time.sleep(1)
     if '2-Step' in browser.page_source:
@@ -150,12 +151,15 @@ def process_photo(browser, last_file, descriptions, download_file, album):
     if desc is None:
         print('  %s: description not editable, most likely not your photo' % filename)
     elif filename in descriptions:
-        if len(descriptions[filename]) >= len(desc.text):
+        if descriptions[filename] == desc.text:
+            print('  %s:  %s  ====  %s' % (filename, desc.text, descriptions[filename]))
+        elif len(descriptions[filename]) < len(desc.text):
+            print('  %s:  %s  -x->  %s  NEW DESCRIPTION SHORTER, ASSUMING IT IS OUTDATED'
+                  % (filename, desc.text, descriptions[filename]))
+        else:
             print('  %s:  %s  --->  %s' % (filename, desc.text, descriptions[filename]))
             photo_set_description(desc, descriptions[filename])
-        else:
-            print('WARNING  %s:  %s  -x->  %s  NEW DESCRIPTION SHORTER, ASSUMING IT IS OUTDATED'
-                  % (filename, desc.text, descriptions[filename]))
+
     elif REMOVE_HASHTAGGED and '#'+filename in descriptions:
         new_text = descriptions['#'+filename] + (' (removed from %s)' % album)
         photo_set_description(desc, new_text)
@@ -234,14 +238,18 @@ def process_account(credentials_filename, descriptions_filename):
     albums = browser.find_elements_by_xpath(CLASS_ALBUM_LINK)
     print("Album links loaded.")
 
+    global SKIP_ALBUMS_UNTIL
     for a in albums:
         name = album_name(a)
-        if ALBUM_NAME_CONTAINS is None or ALBUM_NAME_CONTAINS in name:
+        if SKIP_ALBUMS_UNTIL is not None and SKIP_ALBUMS_UNTIL in name:
+            SKIP_ALBUMS_UNTIL = None
+        if (SKIP_ALBUMS_UNTIL is None) and (ALBUM_NAME_CONTAINS is None or ALBUM_NAME_CONTAINS in name):
             if not ASK_ALBUMS or input('Process %s? [y/n]' % name) == 'y':
                 print('Album: %s' % name)
                 process_album(browser, a, descriptions, download_file, name)
-        else:
-            print('Skipped: %s' % name)
+                continue
+
+        print('Skipped: %s' % name)
 
     time.sleep(3)
     browser.quit()
