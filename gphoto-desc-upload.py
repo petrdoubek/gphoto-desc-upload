@@ -14,7 +14,7 @@ ONLY_DOWNLOAD = False  # opposite mode, download the captions instead of uploadi
 ASK_ALBUMS = False  # ask before processing each album
 REMOVE_HASHTAGGED = False  # if photo filename is preceded by hash in the descriptions file, remove it from the album
 ALBUM_NAME_CONTAINS = None  # process only albums whose name contains given string, set to None for all
-SKIP_ALBUMS_UNTIL = None  # skip all albums until the one that contains this string
+SKIP_ALBUMS_UNTIL = None  # skip all albums until the one that contains this string, set to None for no skipping
 
 CREDENTIALS_FILENAME = 'credentials.json'
 DESCRIPTIONS_FILENAME = 'captions.txt'
